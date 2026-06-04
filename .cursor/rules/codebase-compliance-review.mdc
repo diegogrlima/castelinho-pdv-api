@@ -1,0 +1,125 @@
+---
+description: Guides AI to audit the codebase against project rules and report violations with fixes and rationale
+globs: **/*
+alwaysApply: true
+---
+# Codebase Compliance Review
+
+When the user asks to **review**, **audit**, **check compliance**, **validate against rules**, or similar, perform a structured compliance review of the codebase against **all applicable project rules** in `.cursor/rules/` (especially `layered-architecture.mdc` and any other active rules).
+
+Do not guess violations. **Read the actual code** (controllers, services, repositories, domain, DTOs, exception handlers, package structure) before reporting issues.
+
+## When to Run a Full Review
+
+Run a compliance review when:
+
+- The user explicitly requests a rule check or architecture audit
+- The user asks whether recent changes follow project standards
+- A large feature was just implemented and the user wants validation before merge
+- The user mentions "violations", "breaking rules", or "is this correct per our standards"
+
+For small, localized edits, limit the review to **touched files and their direct dependencies** unless the user asks for a full-repo scan.
+
+## Review Process
+
+1. **Load rules** — Read every `.mdc` file under `.cursor/rules/` except meta-only files (`cursor-rules.mdc`, `self-improvement.mdc`) unless relevant. Always include `layered-architecture.mdc` and `api-security.mdc` when reviewing API code. Build a checklist from each rule’s requirements.
+2. **Discover structure** — Map packages, layers, and entry points (`src/main/java`, tests, config).
+3. **Sample by risk** — Prioritize: controllers, services/use cases, repositories, entities exposed via API, domain imports, exception handling, DTO/mapper usage.
+4. **Verify each finding** — Cite file path and line range. If compliant, do not invent issues.
+5. **Propose fixes** — For each violation: what to change, minimal diff scope, and **why** (tie back to the rule and architecture principle).
+
+## Violation Report Format
+
+Use this structure for every finding:
+
+```markdown
+### [SEVERITY] Short title
+
+- **Rule**: Name of the rule file and requirement (e.g. `layered-architecture.mdc` — Controller must not contain business logic)
+- **Location**: `path/to/File.java` (lines X–Y)
+- **What’s wrong**: Concrete description of the current code behavior
+- **Why it matters**: Principle at stake (testability, coupling, security, maintainability, etc.)
+- **Suggested fix**: Step-by-step or code sketch of the corrected approach
+- **Effort**: Low | Medium | High
+```
+
+**Severity levels**
+
+| Level | Meaning |
+|-------|---------|
+| **Critical** | Breaks dependency direction, exposes entities on API, or puts core business rules in the wrong layer |
+| **Major** | Clear layer leak, missing validation at boundary, or non-standard errors |
+| **Minor** | Naming, package placement, or inconsistency that does not block correctness yet |
+
+## Compliance Dimensions (Checklist)
+
+Evaluate against project rules, including but not limited to:
+
+| Area | What to look for |
+|------|------------------|
+| **Layer boundaries** | Business logic in controllers; repositories called from controllers; domain importing Spring/JPA |
+| **Dependency direction** | Inner layers depending on outer layers; concrete infra injected into domain |
+| **API contracts** | Entities returned from REST; missing request/response DTOs; no mappers |
+| **Validation** | Input reaching services/domain without `@Valid` or boundary validation |
+| **Application layer** | Use cases/services orchestrating; transactions at appropriate level |
+| **Persistence** | Repository only for data access; business rules in repository implementations |
+| **Errors** | Ad-hoc try/catch in controllers; inconsistent error bodies; missing `@ControllerAdvice` |
+| **Testability** | Logic that cannot be unit-tested without Spring context or database |
+| **Authentication** | Protected routes without auth; public routes not explicitly allowlisted |
+| **Object-level auth (BOLA)** | Resource access by ID without ownership/permission check |
+| **Function-level auth** | Admin/privileged routes with authentication only, no role/permission check |
+| **Mass assignment** | Client can set `role`, `isAdmin`, `status`, `balance`, `ownerId`, etc. via DTO/entity binding |
+| **Sensitive exposure** | Passwords, hashes, tokens, secrets, entities, or stack traces in responses/errors |
+| **Error safety** | Internal IDs, SQL, table/column names, or framework errors exposed to clients |
+| **Input validation** | Missing `@Valid` on body/params before business logic |
+| **Passwords & tokens** | Plain passwords stored; tokens without expiry/revocation |
+| **Rate limiting** | Login, register, reset, OTP endpoints without throttling |
+| **Injection** | Concatenated user input in SQL/JPQL |
+| **Logging & audit** | Secrets/PII in logs; missing audit for login, failures, critical changes |
+| **Production hygiene** | Debug mode, public docs, test endpoints, or secrets in prod config |
+
+## Final Summary Template
+
+End every review with:
+
+```markdown
+## Compliance summary
+
+- **Scope**: (files/packages reviewed)
+- **Rules applied**: (list of .mdc rule files used)
+- **Findings**: X Critical, Y Major, Z Minor
+- **Overall**: Compliant | Needs fixes | Non-compliant
+
+## Recommended order of fixes
+
+1. ...
+2. ...
+
+## What’s already good
+
+- (acknowledge correct patterns — avoids-only-negative feedback)
+```
+
+## Behavior Rules for the AI
+
+- **Be specific** — Point to real classes and methods; use code citations when showing examples.
+- **Explain why** — Every suggestion must include the architectural or maintainability reason, not only “rule says no”.
+- **Prefer minimal fixes** — Suggest the smallest change that restores compliance; avoid unnecessary refactors.
+- **Do not auto-rewrite the whole codebase** — Unless the user asks to fix violations, deliver the report and offer to implement fixes file by file.
+- **No false positives** — If the project is empty or a layer does not exist yet, say so and list what to set up when code is added.
+- **Cross-rule conflicts** — If two rules tension exists, call it out and recommend a single consistent approach.
+
+## Example Finding (Reference)
+
+```markdown
+### [Major] Business logic inside REST controller
+
+- **Rule**: `layered-architecture.mdc` — Controllers delegate; no business rules in presentation
+- **Location**: `api/EmployeeController.java` (lines 42–58)
+- **What’s wrong**: Salary validation and discount calculation run inside the controller before save
+- **Why it matters**: Logic in the presentation layer cannot be reused, is hard to unit test without MockMvc, and couples HTTP to business rules
+- **Suggested fix**: Move validation and calculation to `CreateEmployeeUseCase` or a domain service; controller only maps `CreateEmployeeRequest` → use case → `EmployeeResponse`
+- **Effort**: Medium
+```
+
+When the user only wants a **quick check**, return the top 3–5 highest-severity items plus the summary. When they want a **full audit**, cover all checklist dimensions and list files scanned.

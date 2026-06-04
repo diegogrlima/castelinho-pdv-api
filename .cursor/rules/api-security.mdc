@@ -1,0 +1,199 @@
+---
+description: API security baseline for authentication, authorization, validation, secrets, and OWASP API Top 10 risks
+globs: **/*.java,**/*.yml,**/*.yaml,**/*.properties
+alwaysApply: true
+---
+# API Security (Baseline)
+
+Apply these rules **from the first commit** of the API. Security is not a late-phase add-on. Align with OWASP API Security Top 10 (especially **Broken Object Level Authorization**, **Broken Authentication**, **Broken Object Property Level Authorization**, **Unrestricted Resource Consumption**, and **Unsafe Consumption of APIs**).
+
+## Authentication and Authorization
+
+### Authenticated routes
+
+- All protected endpoints must require a valid authenticated principal (e.g. Spring Security JWT/session filter).
+- Public routes (`/auth/login`, `/auth/register`, health) must be explicitly allowlisted; everything else is **deny by default**.
+
+```java
+// GOOD — default deny, explicit permit
+http.authorizeHttpRequests(auth -> auth
+    .requestMatchers("/auth/login", "/auth/register", "/actuator/health").permitAll()
+    .anyRequest().authenticated()
+);
+```
+
+### Object-level authorization (BOLA / IDOR)
+
+Being logged in is **not enough**. For every request that accesses a resource by ID or ownership:
+
+- Verify the authenticated user **owns** or **is allowed** to access that specific resource.
+- Enforce checks in the **application or domain layer**, not only in the controller comment.
+- Never trust client-supplied `userId`, `ownerId`, or `tenantId` to decide access without matching them to the security context.
+
+```java
+// BAD — any authenticated user can read any order
+@GetMapping("/orders/{id}")
+public Order get(@PathVariable UUID id) {
+    return orderRepository.findById(id).orElseThrow();
+}
+
+// GOOD — authorization in use case
+public OrderResponse getOrder(UUID orderId, UUID currentUserId) {
+    Order order = orderRepository.findById(orderId)...;
+    if (!order.belongsTo(currentUserId)) {
+        throw new AccessDeniedException("Not allowed to access this order");
+    }
+    return mapper.toResponse(order);
+}
+```
+
+### Function-level authorization (admin / privileged routes)
+
+- Administrative routes (`/admin/**`, bulk operations, user management) must verify **role or permission**, not only authentication.
+- Use method-level security (`@PreAuthorize`) or explicit checks in use cases; keep rules consistent and testable.
+
+```java
+@PreAuthorize("hasRole('ADMIN')")
+@DeleteMapping("/admin/users/{id}")
+public void deactivateUser(@PathVariable UUID id) { ... }
+```
+
+### Property-level authorization (mass assignment)
+
+- Clients must **not** set privileged fields via request body: `role`, `isAdmin`, `status`, `balance`, `ownerId`, `permissions`, internal flags, etc.
+- Use **separate DTOs** for create/update with only allowed fields; map explicitly to domain commands.
+- Ignore unknown or forbidden fields; do not bind directly to entity graphs with `@RequestBody Entity`.
+
+```java
+// BAD — user can set role via JSON
+public record UpdateUserRequest(String name, String role, boolean isAdmin) {}
+
+// GOOD — only safe fields; role changed only by admin use case
+public record UpdateProfileRequest(
+    @NotBlank String name,
+    @Email String email
+) {}
+```
+
+### Backend is the source of truth
+
+- Every important rule (who can access what, which fields can change, limits, state transitions) must be enforced **on the server**.
+- Never rely on frontend validation or hidden UI alone.
+
+## Sensitive Data Exposure
+
+### Never return secrets or internal artifacts
+
+Do **not** include in API responses (or error bodies):
+
+- Plain or hashed passwords, password reset tokens
+- Access/refresh tokens, API keys, client secrets
+- Private keys, internal metadata, stack traces, raw SQL, table/column names, file paths
+
+Use response DTOs with explicit allowlists of fields.
+
+### DTOs only at the boundary
+
+- Do not return JPA entities, ORM models, or internal domain objects directly.
+- Map to response DTOs; use `@JsonIgnore` only as a safety net, not as the primary design.
+
+### Safe error responses
+
+- Use a **standard error envelope** (code, message, optional field errors) via `@ControllerAdvice`.
+- Messages must be **generic** for clients; log details server-side only.
+- Do not expose internal IDs in errors when not needed; never leak stack traces or framework/DB errors to clients.
+
+```java
+// BAD
+return ResponseEntity.status(500).body(ex.getMessage() + " table users column password_hash");
+
+// GOOD
+log.error("Failed to update user", ex);
+return ResponseEntity.status(500).body(new ApiError("INTERNAL_ERROR", "Unable to process request"));
+```
+
+## Input Validation
+
+- Validate **body**, **path variables**, **query params**, and relevant **headers** with Bean Validation (`@Valid`, `@NotNull`, `@Size`, custom validators) **before** business logic runs.
+- Reject invalid input with `400` and structured errors; do not pass tainted input to repositories or external calls.
+
+## Passwords and Tokens
+
+### Password storage
+
+- **Never** store plain-text passwords.
+- Use a strong adaptive hash: **BCrypt** (Spring `PasswordEncoder`), **Argon2**, or equivalent with appropriate cost/work factors.
+- Do not log passwords or include them in exception messages.
+
+### Tokens
+
+- Access tokens must **expire**; refresh tokens must have stricter rotation/revocation policy.
+- Do not embed sensitive PII or secrets inside JWT payloads beyond subject/claims needed for authorization.
+- Support **invalidation** on logout, password change, and compromise (blocklist, token version, or server-side session store).
+
+## Rate Limiting and Abuse Prevention
+
+- Limit request rate per IP/user/client, especially on:
+
+  - Login
+  - Password reset / recovery
+  - OTP / SMS / email verification
+  - Account registration
+
+- Return `429 Too Many Requests` with consistent body; log repeated failures for monitoring.
+- Prefer bucket/token-bucket or framework-supported filters (e.g. Bucket4j, gateway, API gateway) from early development.
+
+## Transport and CORS
+
+- Production APIs must serve sensitive data only over **HTTPS** (TLS). Local dev may use HTTP.
+- Do **not** use `Access-Control-Allow-Origin: *` with credentials or for production without a documented need.
+- Restrict CORS to known frontend origins and methods.
+
+## Injection and Data Access
+
+- Use **parameterized queries**, Spring Data JPA, or Criteria API — never concatenate user input into SQL/JPQL/native queries.
+- Validate and sanitize inputs used in dynamic filters; whitelist sort fields and column names.
+
+## Logging and Audit
+
+### Safe logging
+
+- Logs may include correlation IDs, user IDs (non-PII identifiers), action types, timestamps.
+- Do **not** log: passwords, tokens, full credit card data, full request bodies with secrets, or excessive PII.
+- Mask or omit sensitive fields in structured logs.
+
+### Security-relevant events (audit trail)
+
+Record important events for investigation and compliance:
+
+- Successful and failed **login**
+- Password reset / MFA attempts
+- **Authorization failures** (403)
+- Critical data changes (role change, account lock, permission grant)
+- Suspicious patterns (rate limit hits, repeated invalid tokens)
+
+Store audit records in a dedicated table or secure log sink; protect audit logs from tampering by normal users.
+
+## Production Hardening
+
+- Disable **debug** endpoints and verbose error modes in production profiles.
+- Do not expose Swagger/OpenAPI publicly in production without authentication, unless explicitly approved.
+- Remove or protect **test/debug** endpoints before deploy.
+- Keep secrets in environment variables or a secret manager — never commit `.env`, keys, or credentials to the repository.
+- Restrict Actuator exposure (`/actuator/**`) to admin networks or disable sensitive endpoints in prod.
+
+## Security Checklist (New Endpoints)
+
+Before merging any new endpoint, confirm:
+
+1. Is authentication required? Is authorization object-level and function-level covered?
+2. Are request/response DTOs used? Any mass-assignment risk?
+3. Is input validated at the boundary?
+4. Are errors generic and logging server-side only?
+5. Are secrets/tokens/passwords excluded from responses and logs?
+6. Are queries parameterized?
+7. Do sensitive routes have rate limits?
+8. Is admin access explicitly permission-checked?
+9. Are audit events emitted for security-sensitive actions?
+
+Violations are **Critical** until fixed; do not defer security basics to a later sprint.

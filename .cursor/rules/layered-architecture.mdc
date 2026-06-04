@@ -1,0 +1,112 @@
+---
+description: Enforces layered architecture, separation of concerns, and dependency rules for Spring Boot backends
+globs: **/*.java
+alwaysApply: true
+---
+# Layered Architecture
+
+Follow a strict layered architecture. Organize code by **responsibility**, not by mixing HTTP, business logic, and persistence in the same class.
+
+## Layers and Responsibilities
+
+| Layer | Package (example) | Responsibility |
+|-------|-------------------|----------------|
+| **Presentation** | `...api`, `...controller` | HTTP mapping, status codes, request/response contracts |
+| **Application** | `...application`, `...service`, `...usecase` | Orchestration, application workflows, transactions |
+| **Domain** | `...domain` | Core business rules, entities, value objects, domain services |
+| **Infrastructure** | `...infrastructure`, `...persistence` | DB, external APIs, files, queues, email, framework adapters |
+
+Each layer has **one specific role**. Do not let responsibilities leak across boundaries.
+
+## Dependency Flow (Mandatory)
+
+Dependencies must point **inward**. Outer layers may depend on inner abstractions; inner layers must **never** depend on outer implementation details.
+
+```
+Presentation → Application → Domain ← Infrastructure (implements Domain ports)
+```
+
+- **Presentation** talks to **Application** (services/use cases), never directly to repositories or JPA entities for business decisions.
+- **Application** depends on **Domain** interfaces (ports), not on concrete infrastructure.
+- **Infrastructure** implements domain/application ports (repositories, gateways, messaging).
+- **Domain** has **zero** dependencies on Spring, JPA, HTTP, or third-party frameworks.
+
+Prefer **interfaces (ports)** in the inner layers and **implementations (adapters)** in infrastructure.
+
+## Layer Rules
+
+### Controller (Presentation)
+
+- Map routes, bind input, delegate to application layer, return DTOs.
+- **No business rules**: no calculations, validations beyond format, or persistence logic.
+- Do not inject `JpaRepository` or entity managers into controllers.
+
+```java
+// BAD — business logic in controller
+@PostMapping("/employees")
+public EmployeeEntity create(@RequestBody EmployeeEntity body) {
+    if (body.getSalary() < 0) throw new IllegalArgumentException("...");
+    return employeeRepository.save(body);
+}
+
+// GOOD — thin controller
+@PostMapping("/employees")
+public EmployeeResponse create(@Valid @RequestBody CreateEmployeeRequest request) {
+    return createEmployeeUseCase.execute(request);
+}
+```
+
+### Service / Use Case (Application)
+
+- Concentrate **application logic**: orchestration, authorization checks at app level, transaction boundaries.
+- Call domain objects/services for business invariants.
+- Depend on repository/gateway **interfaces**, not concrete JPA implementations.
+
+### Repository (Infrastructure)
+
+- **Only data access**: queries, saves, mapping between persistence model and domain.
+- No HTTP, no DTO shaping for public API, no business rules beyond persistence constraints.
+
+### Domain
+
+- Express **core business rules**: invariants, policies, domain events, aggregates.
+- Pure Java (or minimal shared types). No `@Entity`, `@RestController`, `RestTemplate`, etc.
+
+### Infrastructure
+
+- Database (JPA/JDBC), REST clients, S3, Kafka, SMTP, config beans for external systems.
+- Implements ports defined by domain/application.
+
+## Input Validation and API Contracts
+
+- Validate **input at the boundary** (`@Valid`, custom validators on request DTOs) **before** invoking important business rules.
+- **Never expose** domain entities or persistence models directly in API responses.
+- Use **request DTOs**, **response DTOs**, and **mappers** (MapStruct or explicit mapper classes) for all public input/output.
+- Keep serialization concerns (JSON field names, null handling) in the presentation layer.
+
+## Error Handling
+
+- Use a centralized mechanism (`@ControllerAdvice` + `@ExceptionHandler`).
+- Map domain/application exceptions to consistent HTTP responses and error body shape.
+- Do not catch generic `Exception` in controllers to hide failures; let the advice layer translate known errors.
+
+## Testability and Change Isolation
+
+- Each layer must be testable **in isolation** (unit tests with mocks for ports; integration tests for infrastructure adapters).
+- Business rules must be testable **without** a database or Spring context.
+- Changes in one layer (e.g. switch DB or HTTP client) must not force unrelated layers to change when abstractions are respected.
+
+## Code Organization Checklist
+
+When adding or reviewing code, verify:
+
+1. Controller only delegates and maps DTOs.
+2. Business logic lives in domain or application, not in controller/repository.
+3. Repository/gateway interfaces live in domain or application; implementations in infrastructure.
+4. Domain has no framework imports.
+5. API uses DTOs, not entities.
+6. Input is validated at the edge.
+7. Errors flow through standardized exception handling.
+8. Dependencies follow inward-only flow.
+
+Violations should be refactored before merging, not accepted as shortcuts.
