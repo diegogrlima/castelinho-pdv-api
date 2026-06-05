@@ -1,0 +1,91 @@
+---
+description: SOLID principles mapped to PDV layers — SRP, OCP, LSP, ISP, DIP
+alwaysApply: true
+---
+# SOLID Principles
+
+Apply SOLID **through layers and ports**, not via over-abstraction. Use with `layered-architecture.mdc` and `nestjs-conventions.mdc`.
+
+## S — Single Responsibility
+
+Each class/module has **one reason to change**.
+
+| Component | Single responsibility |
+|-----------|----------------------|
+| Controller | HTTP mapping only |
+| Service | One feature's use cases / orchestration |
+| Repository adapter | Persistence for one aggregate/table |
+| Domain (`domain/`) | Pure business rules for one concept |
+| Mapper | Entity ↔ response DTO conversion |
+| Error factory | Typed errors for one module |
+
+```
+// BAD — controller validates stock limits and saves
+@Patch(':id') update(@Body() dto) { if (dto.qty < 0) ...; repo.save(...) }
+
+// GOOD — controller delegates; service orchestrates; domain validates
+@Patch(':id') update(@Body() dto) { return this.stockService.setQuantity(id, dto); }
+```
+
+**Red flags**: God services (>300 lines, unrelated domains); repositories throwing HTTP errors; domain importing NestJS/TypeORM.
+
+## O — Open/Closed
+
+Open for extension, closed for modification.
+
+- Extend behavior via **new domain functions**, **new error codes**, or **new adapters** — not by editing stable core logic.
+- Swap persistence by implementing the existing **port**; do not fork service code per database.
+- Prefer adding a new use-case method over branching existing methods with boolean flags.
+
+```
+// BAD
+async save(data, isAdjust?: boolean, isReset?: boolean) { ... }
+
+// GOOD
+async adjust(...) { ... }
+async setQuantity(...) { ... }
+```
+
+## L — Liskov Substitution
+
+Implementations of a port must be **substitutable** without breaking callers.
+
+- Repository adapters honor port contracts (same inputs → equivalent outcomes).
+- Do not throw unexpected errors from adapters that callers cannot handle.
+- Optional `EntityManager` in ports: behavior with `manager` must match behavior without it (same transaction semantics when provided).
+
+## I — Interface Segregation
+
+Ports stay **small and focused**. Clients depend only on what they use.
+
+- One port per aggregate/persistence concern — no "mega repository".
+- Do not expose unused port methods; split if consumers need different subsets.
+- Cross-module calls use **exported services**, not foreign repositories.
+
+```
+// BAD — StockService injects PRODUCTS_REPOSITORY
+// GOOD — StockService calls ProductsService.assertActiveProductExists()
+```
+
+## D — Dependency Inversion
+
+High-level modules depend on **abstractions**, not concretions.
+
+- Services inject **port tokens** (`Symbol`), not `TypeOrmXRepository`.
+- Domain has **zero** framework imports.
+- Infrastructure implements ports defined by application/domain.
+
+**Allowed exceptions** (document in PR if non-obvious):
+
+- `DataSource` in services **only** for transaction boundaries — persistence still goes through ports with optional `EntityManager`.
+- `forwardRef` only when a **real** circular use case exists; prefer extracting shared domain or a third module.
+
+## Checklist (new or changed code)
+
+1. Does this class have a single, clear responsibility?
+2. Can I extend behavior without modifying stable code paths?
+3. Does every port implementation honor the contract?
+4. Is the port/interface minimal for its consumers?
+5. Do services depend on abstractions, not TypeORM/HTTP types?
+
+Violations: refactor before merge unless explicitly deferred (e.g. auth backlog).

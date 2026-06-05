@@ -5,7 +5,7 @@ alwaysApply: true
 ---
 # Codebase Compliance Review
 
-When the user asks to **review**, **audit**, **check compliance**, **validate against rules**, or similar, perform a structured compliance review of the codebase against **all applicable project rules** in `.cursor/rules/` (especially `layered-architecture.mdc` and any other active rules).
+When the user asks to **review**, **audit**, **check compliance**, **validate against rules**, or similar, perform a structured compliance review of the codebase against **all applicable project rules** in `.cursor/rules/` (especially `nestjs-conventions.mdc`, `layered-architecture.mdc`, `solid-principles.mdc`, `clean-code.mdc`, `error-handling.mdc`, and `api-security.mdc`).
 
 Do not guess violations. **Read the actual code** (controllers, services, repositories, domain, DTOs, exception handlers, package structure) before reporting issues.
 
@@ -22,8 +22,8 @@ For small, localized edits, limit the review to **touched files and their direct
 
 ## Review Process
 
-1. **Load rules** — Read every `.mdc` file under `.cursor/rules/` except meta-only files (`cursor-rules.mdc`, `self-improvement.mdc`) unless relevant. Always include `layered-architecture.mdc` and `api-security.mdc` when reviewing API code. Build a checklist from each rule’s requirements.
-2. **Discover structure** — Map packages, layers, and entry points (`src/main/java`, tests, config).
+1. **Load rules** — Read every `.mdc` file under `.cursor/rules/` except meta-only files (`cursor-rules.mdc`, `self-improvement.mdc`) unless relevant. Always include generic rules (`layered-architecture.mdc`, `solid-principles.mdc`, `clean-code.mdc`, `error-handling.mdc`, `api-security.mdc`) plus the project’s framework adapter rule (e.g. `nestjs-conventions.mdc` for NestJS). Build a checklist from each rule’s requirements.
+2. **Discover structure** — Map packages, layers, and entry points (`src/`, modules, tests, config).
 3. **Sample by risk** — Prioritize: controllers, services/use cases, repositories, entities exposed via API, domain imports, exception handling, DTO/mapper usage.
 4. **Verify each finding** — Cite file path and line range. If compliant, do not invent issues.
 5. **Propose fixes** — For each violation: what to change, minimal diff scope, and **why** (tie back to the rule and architecture principle).
@@ -36,7 +36,7 @@ Use this structure for every finding:
 ### [SEVERITY] Short title
 
 - **Rule**: Name of the rule file and requirement (e.g. `layered-architecture.mdc` — Controller must not contain business logic)
-- **Location**: `path/to/File.java` (lines X–Y)
+- **Location**: `path/to/file.ts` (lines X–Y)
 - **What’s wrong**: Concrete description of the current code behavior
 - **Why it matters**: Principle at stake (testability, coupling, security, maintainability, etc.)
 - **Suggested fix**: Step-by-step or code sketch of the corrected approach
@@ -57,26 +57,28 @@ Evaluate against project rules, including but not limited to:
 
 | Area | What to look for |
 |------|------------------|
-| **Layer boundaries** | Business logic in controllers; repositories called from controllers; domain importing Spring/JPA |
+| **Layer boundaries** | Business logic in controllers; repositories called from controllers; domain importing ORM/framework |
 | **Dependency direction** | Inner layers depending on outer layers; concrete infra injected into domain |
 | **API contracts** | Entities returned from REST; missing request/response DTOs; no mappers |
-| **Validation** | Input reaching services/domain without `@Valid` or boundary validation |
+| **Validation** | Input reaching services/domain without boundary validation |
 | **Application layer** | Use cases/services orchestrating; transactions at appropriate level |
 | **Persistence** | Repository only for data access; business rules in repository implementations |
-| **Errors** | Ad-hoc try/catch in controllers; inconsistent error bodies; missing `@ControllerAdvice` |
-| **Testability** | Logic that cannot be unit-tested without Spring context or database |
+| **Errors** | Ad-hoc try/catch in controllers; inconsistent error bodies; missing central error handler |
+| **Testability** | Logic that cannot be unit-tested without full runtime or database |
 | **Authentication** | Protected routes without auth; public routes not explicitly allowlisted |
 | **Object-level auth (BOLA)** | Resource access by ID without ownership/permission check |
 | **Function-level auth** | Admin/privileged routes with authentication only, no role/permission check |
 | **Mass assignment** | Client can set `role`, `isAdmin`, `status`, `balance`, `ownerId`, etc. via DTO/entity binding |
 | **Sensitive exposure** | Passwords, hashes, tokens, secrets, entities, or stack traces in responses/errors |
 | **Error safety** | Internal IDs, SQL, table/column names, or framework errors exposed to clients |
-| **Input validation** | Missing `@Valid` on body/params before business logic |
+| **Input validation** | Missing boundary validation on body/params before business logic |
 | **Passwords & tokens** | Plain passwords stored; tokens without expiry/revocation |
 | **Rate limiting** | Login, register, reset, OTP endpoints without throttling |
-| **Injection** | Concatenated user input in SQL/JPQL |
+| **Injection** | Concatenated user input in SQL/query strings |
 | **Logging & audit** | Secrets/PII in logs; missing audit for login, failures, critical changes |
 | **Production hygiene** | Debug mode, public docs, test endpoints, or secrets in prod config |
+| **SOLID** | God classes; services depending on concrete infra; fat ports; cross-module repository injection |
+| **Clean Code** | Unclear naming; long functions; magic strings; duplicated rules; comments explaining obvious code |
 
 ## Final Summary Template
 
@@ -114,11 +116,11 @@ End every review with:
 ```markdown
 ### [Major] Business logic inside REST controller
 
-- **Rule**: `layered-architecture.mdc` — Controllers delegate; no business rules in presentation
-- **Location**: `api/EmployeeController.java` (lines 42–58)
-- **What’s wrong**: Salary validation and discount calculation run inside the controller before save
-- **Why it matters**: Logic in the presentation layer cannot be reused, is hard to unit test without MockMvc, and couples HTTP to business rules
-- **Suggested fix**: Move validation and calculation to `CreateEmployeeUseCase` or a domain service; controller only maps `CreateEmployeeRequest` → use case → `EmployeeResponse`
+- **Rule**: `layered-architecture.mdc` — Presentation delegates; no business rules in handlers
+- **Location**: `src/products/products.controller.ts` (lines 42–58)
+- **What's wrong**: Salary validation and discount calculation run inside the controller before save
+- **Why it matters**: Logic in the presentation layer cannot be reused, is hard to unit test, and couples HTTP to business rules
+- **Suggested fix**: Move validation and calculation to application service or domain; controller only maps request DTO → service → response DTO
 - **Effort**: Medium
 ```
 
