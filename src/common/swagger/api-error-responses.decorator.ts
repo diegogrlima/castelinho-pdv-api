@@ -66,6 +66,22 @@ export function ApiErroEstoqueInsuficiente() {
   );
 }
 
+export function ApiErroVendaNaoEncontrada() {
+  return jsonErrorResponse(
+    HttpStatus.NOT_FOUND,
+    'Venda inexistente.',
+    { vendaNaoEncontrada: ERROR_EXAMPLES.saleNotFound },
+  );
+}
+
+export function ApiErroStatusVendaInvalido() {
+  return jsonErrorResponse(
+    HttpStatus.BAD_REQUEST,
+    'Operação não permitida para o status atual da venda.',
+    { statusVendaInvalido: ERROR_EXAMPLES.saleInvalidStatus },
+  );
+}
+
 export function ApiErroLimitesEstoque() {
   return jsonErrorResponse(
     HttpStatus.BAD_REQUEST,

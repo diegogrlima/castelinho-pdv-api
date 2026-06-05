@@ -81,6 +81,7 @@
       "^@config/(.*)$": "<rootDir>/config/$1",
       "^@products/(.*)$": "<rootDir>/products/$1",
       "^@stocks/(.*)$": "<rootDir>/stocks/$1",
+      "^@sales/(.*)$": "<rootDir>/sales/$1",
       "^@/(.*)$": "<rootDir>/$1"
     }
   }

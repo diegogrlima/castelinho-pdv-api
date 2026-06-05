@@ -85,6 +85,26 @@ export const ERROR_EXAMPLES = {
       timestamp: '2024-06-15T14:30:00.000Z',
     },
   },
+  saleNotFound: {
+    summary: 'Venda não encontrada',
+    value: {
+      statusCode: 404,
+      code: ErrorCode.SALE_NOT_FOUND,
+      message: 'Venda não encontrada',
+      path: '/v1/sales/880e8400-e29b-41d4-a716-446655440003',
+      timestamp: '2024-06-15T14:30:00.000Z',
+    },
+  },
+  saleInvalidStatus: {
+    summary: 'Status da venda inválido para a operação',
+    value: {
+      statusCode: 400,
+      code: ErrorCode.SALE_INVALID_STATUS,
+      message: 'Apenas vendas abertas podem ser concluídas',
+      path: '/v1/sales/880e8400-e29b-41d4-a716-446655440003/complete',
+      timestamp: '2024-06-15T14:30:00.000Z',
+    },
+  },
   internalError: {
     summary: 'Erro interno inesperado',
     value: {
@@ -123,6 +143,25 @@ export const PRODUCT_RESPONSE_EXAMPLE = {
   description: 'Grãos torrados e moídos na hora',
   price: 29.9,
   active: true,
+  createdAt: '2024-06-01T10:00:00.000Z',
+  updatedAt: '2024-06-01T10:00:00.000Z',
+};
+
+export const SALE_RESPONSE_EXAMPLE = {
+  id: '880e8400-e29b-41d4-a716-446655440003',
+  code: 'VND-M5K2ABCD',
+  total: 59.8,
+  status: 'OPEN',
+  items: [
+    {
+      id: '770e8400-e29b-41d4-a716-446655440002',
+      productId: '550e8400-e29b-41d4-a716-446655440000',
+      productName: 'Café Especial 250g',
+      quantity: 2,
+      unitPrice: 29.9,
+      subtotal: 59.8,
+    },
+  ],
   createdAt: '2024-06-01T10:00:00.000Z',
   updatedAt: '2024-06-01T10:00:00.000Z',
 };

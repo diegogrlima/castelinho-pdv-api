@@ -1,4 +1,5 @@
 import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import { EntityManager } from 'typeorm';
 import { StockErrors } from '@common/errors/stock.errors';
 import { ProductsService } from '@products/products.service';
 import {
@@ -143,6 +144,39 @@ export class StockService {
 
     stock.quantity = newQuantity;
     return this.persistStock(stock);
+  }
+
+  async deductQuantity(
+    productId: string,
+    quantity: number,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const stock = await this.findStockByProductIdOrFail(productId, manager);
+    const newQuantity = computeAdjustedQuantity(stock.quantity, 'OUT', quantity);
+
+    if (isNegativeQuantity(newQuantity)) {
+      throw StockErrors.insufficientQuantity();
+    }
+
+    this.assertValidQuantityLimits(
+      newQuantity,
+      stock.minimumQuantity,
+      stock.maximumQuantity,
+    );
+
+    stock.quantity = newQuantity;
+    await this.stockRepository.save(stock, manager);
+  }
+
+  private async findStockByProductIdOrFail(
+    productId: string,
+    manager?: EntityManager,
+  ): Promise<Stock> {
+    const stock = await this.stockRepository.findByProductId(productId, manager);
+    if (!stock) {
+      throw StockErrors.notFound();
+    }
+    return stock;
   }
 
   private async findEntityByProductIdOrFail(productId: string): Promise<Stock> {

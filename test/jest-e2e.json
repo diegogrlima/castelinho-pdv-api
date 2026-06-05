@@ -11,6 +11,7 @@
     "^@config/(.*)$": "<rootDir>/src/config/$1",
     "^@products/(.*)$": "<rootDir>/src/products/$1",
     "^@stocks/(.*)$": "<rootDir>/src/stocks/$1",
+    "^@sales/(.*)$": "<rootDir>/src/sales/$1",
     "^@/(.*)$": "<rootDir>/src/$1"
   }
 }
