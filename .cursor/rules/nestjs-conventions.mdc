@@ -1,0 +1,145 @@
+---
+description: NestJS conventions, module structure, and best practices for the PDV API
+globs: src/**/*.ts
+alwaysApply: true
+---
+# NestJS Conventions (PDV)
+
+Stack: **NestJS 11**, **TypeORM**, **class-validator**. Use with `layered-architecture.mdc`, `solid-principles.mdc`, `clean-code.mdc`, `error-handling.mdc`, `api-security.mdc`.
+
+## Rule precedence
+
+When rules overlap, follow this order:
+
+| Topic | Source of truth |
+|-------|-----------------|
+| HTTP errors, codes, filter, logging | `error-handling.mdc` (principles) + **Error handling (NestJS)** below |
+| Auth, secrets, rate limits, OWASP | `api-security.mdc` |
+| Layer boundaries, ports, DTO contracts | `layered-architecture.mdc` (principles) + this file (NestJS mapping) |
+| SOLID (SRP, OCP, LSP, ISP, DIP) | `solid-principles.mdc` |
+| Naming, functions, readability, DRY | `clean-code.mdc` |
+| NestJS-specific patterns | **this file** |
+| Unresolved conflict | **Ask the user** before choosing |
+
+## Layer mapping (NestJS)
+
+| Layer | Location | Responsibility |
+|-------|----------|----------------|
+| Presentation | `*.controller.ts` | Routes, status codes, bind DTOs, delegate |
+| Application | `*.service.ts` | Orchestration, transactions, business rules |
+| Infrastructure | `repositories/typeorm-*.repository.ts`, `entities/` | Persistence adapters, TypeORM models |
+| Domain (when required) | `domain/` inside feature | Pure rules for complex flows — see below |
+
+### Domain strategy (hybrid — project decision)
+
+- **Simple CRUD** (list/get/update fields): TypeORM entities + service + port is acceptable.
+- **Complex business flows** (stock limits, sales, payments, state transitions): extract pure domain types/rules in `domain/`; services orchestrate; repositories only persist.
+- Never put HTTP or NestJS decorators in `domain/`.
+
+## Feature module layout
+
+```
+src/<feature>/
+├── <feature>.module.ts
+├── <feature>.controller.ts
+├── <feature>.service.ts
+├── dto/              # API request/response only
+├── entities/         # TypeORM @Entity
+├── repositories/     # port + typeorm adapter
+├── mappers/          # entity → response DTO
+└── domain/           # optional — required for complex flows
+```
+
+Shared cross-cutting code lives in `src/common/` (filters, pipes, errors).
+
+## Controllers
+
+- Thin: bind input → call service → return response DTO.
+- URI versioning: `@Controller({ path: 'products', version: '1' })`.
+- Global `ValidationPipe` in `main.ts` validates DTOs — use `class-validator` on DTO classes; no manual validation in controllers.
+- `ParseUUIDPipe` on UUID path params.
+- Correct HTTP verbs: `DELETE` for remove; never duplicate method+path (e.g. two `@Patch(':id')`).
+- No try/catch, no repository injection, no business logic.
+
+```typescript
+// BAD
+@Patch(':id')
+remove(@Param('id') id: string) { ... }
+
+// GOOD
+@Delete(':id')
+@HttpCode(HttpStatus.NO_CONTENT)
+remove(@Param('id', ParseUUIDPipe) id: string) { ... }
+```
+
+## Services
+
+- Inject repository **ports** (`Symbol` tokens), not concrete TypeORM adapters from other modules.
+- Cross-module logic: call exported **services**, not other modules' controllers or repositories.
+- **Internal service methods** (e.g. `createForProduct`) are valid when the use case is orchestrated by another module and does not need its own HTTP route.
+- Multi-step writes that must succeed or fail together: `DataSource.transaction()`; pass optional `EntityManager` to collaborators in the same transaction.
+- Throw errors via `AppException` factories — see **Error handling (NestJS)** below.
+
+## Error handling (NestJS)
+
+Implements `error-handling.mdc` for this project:
+
+- Global `HttpExceptionFilter` in `main.ts` — all errors flow through it.
+- Throw **`AppException`** (or subclasses) from `*.service.ts` only.
+- Use **`ErrorCode`** constants in `src/common/errors/error-codes.ts` — never hardcode codes in services.
+- Factories in `src/common/errors/*.errors.ts` (e.g. `ProductErrors.notFound()`).
+- Never throw raw `Error`, NestJS `NotFoundException`, or use try/catch in controllers.
+- Validation errors via `validationExceptionFactory` → `VALIDATION_ERROR` + `fieldErrors`.
+- Response shape: `ApiErrorResponse` (`statusCode`, `code`, `message`, `path`, `timestamp`, optional `fieldErrors`).
+
+```typescript
+// BAD
+throw new NotFoundException('Produto ' + id + ' não encontrado');
+
+// GOOD
+throw ProductErrors.notFound();
+```
+
+Adding new errors: (1) code in `error-codes.ts`, (2) factory in `*.errors.ts`, (3) throw from service.
+
+## DTOs
+
+- Separate create / update classes; update uses `PartialType` + `OmitType` to exclude non-updatable or create-only fields.
+- Never return TypeORM entities from controllers — use response DTOs + mappers.
+- Internal persistence shapes (e.g. `CreateStockData`) belong in repository ports, not in public request DTO files.
+
+## Modules & DI
+
+- Constructor injection only.
+- Export ports or services consumed by other modules.
+- Use `forwardRef(() => XModule)` only when a real circular dependency exists; prefer extracting shared ports to avoid cycles.
+- Register repositories: `{ provide: REPOSITORY_TOKEN, useClass: TypeOrmXRepository }`.
+
+## Repositories
+
+- Port = contract; TypeORM class = adapter in `repositories/`.
+- Data access only — no HTTP exceptions, no response DTO shaping, no business rules beyond DB constraints.
+
+## Bootstrap (`main.ts`)
+
+Must include globally:
+
+- `HttpExceptionFilter`
+- `ValidationPipe` with `whitelist`, `forbidNonWhitelisted`, `transform`, and `validationExceptionFactory`
+- URI versioning (`VersioningType.URI`, default `'1'`)
+
+## Testing
+
+- Unit tests colocated: `*.spec.ts` next to source.
+- Mock repository ports and `DataSource` in service tests.
+- Mock `Logger` in filter/controller tests to keep output clean.
+- Controller specs verify delegation (route handler → service method).
+
+## Naming
+
+| Item | Convention |
+|------|------------|
+| Files | kebab-case (`products.service.ts`) |
+| Classes | PascalCase (`ProductsService`) |
+| Port tokens | `UPPER_SNAKE` Symbol (`PRODUCTS_REPOSITORY`) |
+| Error factories | `ProductErrors.notFound()` in `src/common/errors/` |

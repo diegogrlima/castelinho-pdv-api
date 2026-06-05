@@ -1,112 +1,111 @@
 ---
-description: Enforces layered architecture, separation of concerns, and dependency rules for Spring Boot backends
-globs: **/*.java
+description: Layered architecture, separation of concerns, and dependency rules (language/framework agnostic)
 alwaysApply: true
 ---
 # Layered Architecture
 
-Follow a strict layered architecture. Organize code by **responsibility**, not by mixing HTTP, business logic, and persistence in the same class.
+Organize code by **responsibility**. Do not mix transport (HTTP, CLI, messaging), business logic, and persistence in the same component.
 
 ## Layers and Responsibilities
 
-| Layer | Package (example) | Responsibility |
-|-------|-------------------|----------------|
-| **Presentation** | `...api`, `...controller` | HTTP mapping, status codes, request/response contracts |
-| **Application** | `...application`, `...service`, `...usecase` | Orchestration, application workflows, transactions |
-| **Domain** | `...domain` | Core business rules, entities, value objects, domain services |
-| **Infrastructure** | `...infrastructure`, `...persistence` | DB, external APIs, files, queues, email, framework adapters |
+| Layer | Typical location | Responsibility |
+|-------|------------------|----------------|
+| **Presentation** | controllers, handlers, routes | Map requests/responses, status codes, input binding |
+| **Application** | services, use cases | Orchestration, workflows, transaction boundaries |
+| **Domain** | domain models, policies | Core business rules, invariants, value objects |
+| **Infrastructure** | repositories, adapters, ORM | DB, external APIs, queues, file I/O, framework glue |
 
-Each layer has **one specific role**. Do not let responsibilities leak across boundaries.
+Each layer has **one role**. Do not leak responsibilities across boundaries.
 
 ## Dependency Flow (Mandatory)
 
-Dependencies must point **inward**. Outer layers may depend on inner abstractions; inner layers must **never** depend on outer implementation details.
+Dependencies point **inward**. Outer layers depend on inner abstractions; inner layers never depend on outer implementation details.
 
 ```
-Presentation → Application → Domain ← Infrastructure (implements Domain ports)
+Presentation → Application → Domain ← Infrastructure (implements ports)
 ```
 
-- **Presentation** talks to **Application** (services/use cases), never directly to repositories or JPA entities for business decisions.
-- **Application** depends on **Domain** interfaces (ports), not on concrete infrastructure.
-- **Infrastructure** implements domain/application ports (repositories, gateways, messaging).
-- **Domain** has **zero** dependencies on Spring, JPA, HTTP, or third-party frameworks.
+- **Presentation** calls **Application** only — never repositories or persistence models for business decisions.
+- **Application** depends on **ports** (interfaces), not concrete infrastructure.
+- **Infrastructure** implements ports defined by application/domain.
+- **Domain** has **zero** dependencies on HTTP, ORM, DI containers, or third-party frameworks.
 
-Prefer **interfaces (ports)** in the inner layers and **implementations (adapters)** in infrastructure.
+Prefer **ports** in inner layers and **adapters** in infrastructure.
 
 ## Layer Rules
 
-### Controller (Presentation)
+### Presentation (controller / handler)
 
-- Map routes, bind input, delegate to application layer, return DTOs.
+- Map routes, bind input, delegate to application layer, return response DTOs.
 - **No business rules**: no calculations, validations beyond format, or persistence logic.
-- Do not inject `JpaRepository` or entity managers into controllers.
+- Do not inject repositories or ORM sessions into presentation components.
 
-```java
-// BAD — business logic in controller
-@PostMapping("/employees")
-public EmployeeEntity create(@RequestBody EmployeeEntity body) {
-    if (body.getSalary() < 0) throw new IllegalArgumentException("...");
-    return employeeRepository.save(body);
-}
+```
+// BAD — business logic in presentation
+POST /employees → validate salary in handler → repository.save(entity from body)
 
-// GOOD — thin controller
-@PostMapping("/employees")
-public EmployeeResponse create(@Valid @RequestBody CreateEmployeeRequest request) {
-    return createEmployeeUseCase.execute(request);
-}
+// GOOD — thin presentation
+POST /employees → CreateEmployeeRequest → createEmployeeUseCase.execute() → EmployeeResponse
 ```
 
-### Service / Use Case (Application)
+### Application (service / use case)
 
-- Concentrate **application logic**: orchestration, authorization checks at app level, transaction boundaries.
-- Call domain objects/services for business invariants.
-- Depend on repository/gateway **interfaces**, not concrete JPA implementations.
+- Orchestration, authorization checks at app level, **transaction boundaries**.
+- Invoke domain rules for invariants.
+- Depend on repository/gateway **ports**, not concrete adapters.
 
-### Repository (Infrastructure)
+### Repository / Gateway (infrastructure)
 
-- **Only data access**: queries, saves, mapping between persistence model and domain.
-- No HTTP, no DTO shaping for public API, no business rules beyond persistence constraints.
+- **Data access only**: queries, saves, mapping between persistence model and domain/application model.
+- No HTTP, no public API DTO shaping, no business rules beyond persistence constraints.
 
 ### Domain
 
-- Express **core business rules**: invariants, policies, domain events, aggregates.
-- Pure Java (or minimal shared types). No `@Entity`, `@RestController`, `RestTemplate`, etc.
+- Core business rules: invariants, policies, domain events, aggregates.
+- Pure language types only — no ORM annotations, no web framework imports, no transport types.
 
 ### Infrastructure
 
-- Database (JPA/JDBC), REST clients, S3, Kafka, SMTP, config beans for external systems.
-- Implements ports defined by domain/application.
+- Database drivers, ORM, HTTP clients, message brokers, object storage, email.
+- Implements ports; hides framework and vendor details from inner layers.
+
+## Domain Strategy (when to extract)
+
+Use project-specific framework rules (e.g. `nestjs-conventions.mdc`) for local conventions. General guidance:
+
+- **Simple CRUD**: application service + port + persistence model may suffice.
+- **Complex flows** (inventory, payments, state machines): extract pure domain types/rules; application orchestrates; infrastructure only persists.
 
 ## Input Validation and API Contracts
 
-- Validate **input at the boundary** (`@Valid`, custom validators on request DTOs) **before** invoking important business rules.
-- **Never expose** domain entities or persistence models directly in API responses.
-- Use **request DTOs**, **response DTOs**, and **mappers** (MapStruct or explicit mapper classes) for all public input/output.
-- Keep serialization concerns (JSON field names, null handling) in the presentation layer.
+- Validate **input at the boundary** before invoking business rules.
+- **Never expose** persistence models or internal domain objects in public API responses.
+- Use **request DTOs**, **response DTOs**, and **mappers** for all public input/output.
+- Keep serialization concerns (field names, null handling) in the presentation layer.
 
 ## Error Handling
 
-- Use a centralized mechanism (`@ControllerAdvice` + `@ExceptionHandler`).
-- Map domain/application exceptions to consistent HTTP responses and error body shape.
-- Do not catch generic `Exception` in controllers to hide failures; let the advice layer translate known errors.
+- Use a **centralized** exception/error handler for the transport layer.
+- Map application/domain errors to consistent HTTP/API responses and error body shape.
+- Do not catch generic errors in presentation to hide failures — let the handler translate known errors.
 
 ## Testability and Change Isolation
 
-- Each layer must be testable **in isolation** (unit tests with mocks for ports; integration tests for infrastructure adapters).
-- Business rules must be testable **without** a database or Spring context.
-- Changes in one layer (e.g. switch DB or HTTP client) must not force unrelated layers to change when abstractions are respected.
+- Each layer testable **in isolation** (unit tests with mocked ports; integration tests for adapters).
+- Business rules testable **without** a database or full application runtime.
+- Swapping DB, HTTP client, or broker must not force unrelated layers to change when abstractions are respected.
 
-## Code Organization Checklist
+## Checklist
 
 When adding or reviewing code, verify:
 
-1. Controller only delegates and maps DTOs.
-2. Business logic lives in domain or application, not in controller/repository.
-3. Repository/gateway interfaces live in domain or application; implementations in infrastructure.
+1. Presentation only delegates and maps DTOs.
+2. Business logic lives in domain or application — not in presentation or repository.
+3. Port interfaces live in application/domain; implementations in infrastructure.
 4. Domain has no framework imports.
-5. API uses DTOs, not entities.
+5. API uses DTOs, not persistence entities.
 6. Input is validated at the edge.
-7. Errors flow through standardized exception handling.
+7. Errors flow through standardized handling.
 8. Dependencies follow inward-only flow.
 
 Violations should be refactored before merging, not accepted as shortcuts.

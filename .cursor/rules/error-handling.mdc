@@ -1,0 +1,82 @@
+---
+description: Error handling standards — exceptions, envelopes, logging (language/framework agnostic)
+alwaysApply: true
+---
+# Error Handling
+
+All API errors must flow through a **central handler** (middleware, filter, exception advice). Application and presentation layers must **not** shape HTTP responses ad hoc or swallow unknown failures silently.
+
+Framework-specific implementation belongs in project adapter rules (e.g. `nestjs-conventions.mdc` for this PDV API).
+
+## Principles
+
+### Throw from the right layer
+
+- **Application / domain**: throw typed application errors with stable **error codes** and safe client messages.
+- **Presentation**: delegate only — no try/catch to build error JSON.
+- **Infrastructure / repository**: no transport-specific exceptions; let unexpected persistence errors propagate to the central handler as generic 500s.
+
+```
+// BAD — presentation or service
+catch (e) { return { error: e.message } }
+throw generic Error("Product " + id + " not found")
+
+// GOOD — application layer
+throw ProductErrors.notFound()  // typed error with code + safe message
+```
+
+### Stable error codes
+
+- Use **constants** or enums for codes (`PRODUCT_NOT_FOUND`, `VALIDATION_ERROR`) — never hardcode arbitrary strings scattered in services.
+- Group factories by module/domain (`ProductErrors`, `StockErrors`).
+
+## Response envelope
+
+Every error response uses a **consistent shape**:
+
+```json
+{
+  "statusCode": 404,
+  "code": "PRODUCT_NOT_FOUND",
+  "message": "Produto não encontrado",
+  "path": "/v1/products/uuid",
+  "timestamp": "2026-06-04T12:00:00.000Z",
+  "fieldErrors": ["name must be a string"]
+}
+```
+
+- `fieldErrors` only for validation failures.
+- Messages **generic and safe** — no internal IDs, SQL, stack traces, or implementation details in client-facing text.
+
+## HTTP status mapping
+
+| Situation | Status | Code example |
+|-----------|--------|--------------|
+| Invalid input / business rule | 400 | `INSUFFICIENT_STOCK` |
+| Validation (DTO) | 400 | `VALIDATION_ERROR` |
+| Resource not found | 404 | `PRODUCT_NOT_FOUND` |
+| Conflict / duplicate | 409 | `STOCK_ALREADY_EXISTS` |
+| Unauthorized | 401 | `UNAUTHORIZED` |
+| Forbidden | 403 | `FORBIDDEN` |
+| Unexpected failure | 500 | `INTERNAL_ERROR` |
+
+## Layer responsibilities
+
+| Layer | Responsibility |
+|-------|----------------|
+| **Presentation** | Delegate; no try/catch for error shaping |
+| **Application** | Throw typed application errors for business/not-found cases |
+| **Central handler** | Map exceptions → envelope; log server-side |
+| **Repository** | No HTTP errors; unexpected DB errors → 500 via handler |
+
+## Logging
+
+- **4xx**: warn level — method, path, error code (no stack unless needed).
+- **5xx / unknown**: error level with stack trace server-side.
+- Never log passwords, tokens, or full sensitive request bodies.
+
+## Adding new errors
+
+1. Add code to shared error-code registry.
+2. Add factory in module error file.
+3. Throw from application service; extend central handler only for new categories.

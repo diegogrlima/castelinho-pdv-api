@@ -1,0 +1,90 @@
+---
+description: Clean Code standards — naming, functions, DRY, readability (language agnostic)
+alwaysApply: true
+---
+# Clean Code
+
+Readable, maintainable code over clever code. Complements `solid-principles.mdc` and `layered-architecture.mdc`.
+
+## Naming
+
+- **Reveal intent**: `findActiveEntityOrFail`, not `getEntity`.
+- **Consistent vocabulary**: `create`, `find`, `update`, `remove` across features; `assert*` for preconditions that throw.
+- **No noise**: avoid `Manager`, `Helper`, `Util` suffixes unless the type is genuinely generic infrastructure.
+- **Files**: kebab-case; **classes**: PascalCase; **constants**: `UPPER_SNAKE` or `as const` objects.
+
+```
+// BAD
+async proc(d: Dto) { ... }
+
+// GOOD
+async createProduct(dto: CreateProductDto): Promise<ProductResponseDto> { ... }
+```
+
+## Functions
+
+- **Small and focused**: one level of abstraction per function; extract private methods when a block needs a name.
+- **Few parameters**: prefer a DTO/command object over long parameter lists (>4 args → object).
+- **No hidden side effects**: a `find*` method must not mutate state or throw domain errors unexpectedly.
+- **Early returns** for guards; avoid deep nesting (>3 levels).
+
+Target: public service methods readable top-to-bottom as a story (load → validate → persist → map).
+
+## DRY (Don't Repeat Yourself)
+
+- Extract when the **same rule or workflow** appears twice — not after one duplication.
+- Shared business rules → `domain/`; shared HTTP/error shapes → `src/common/`.
+- Do **not** abstract a single one-liner or create generic helpers used once.
+
+```
+// GOOD — repeated limit check lives in domain once
+validateStockQuantityLimits(qty, min, max)
+```
+
+## Comments
+
+- Code should be **self-explanatory**; comments explain **why**, not what.
+- No commented-out code in commits.
+- No redundant JSDoc on obvious getters/setters.
+
+## Magic values
+
+- Business codes, statuses, and error identifiers → **named constants** (`ErrorCode`, `StockLimitViolationCode`).
+- Literal strings in user-facing messages are OK in error factories — not scattered in services.
+
+## Error and control flow
+
+- **Fail fast**: validate at boundary; throw typed errors from application layer.
+- No empty `catch`; no swallowing exceptions in controllers.
+- Prefer `assertActiveProductExists` + throw over returning `null` + checking at every call site.
+
+## Tests as documentation
+
+- Unit tests name **behavior**: `'rejects outbound adjustment below zero'`, not `'test adjust'`.
+- Domain logic must be testable **without** NestJS runtime or database.
+- Mock ports, not concrete adapters, in service tests.
+
+## Size and structure limits (guidelines)
+
+| Item | Guideline |
+|------|-----------|
+| Service file | ≤ ~200 lines; split by sub-domain if larger |
+| Function body | ≤ ~25 lines; extract if longer |
+| Controller method | 1–3 lines (delegate only) |
+| Cyclomatic complexity | Avoid long if/else chains — use domain functions or polymorphism |
+
+## Red flags
+
+- Boolean parameters controlling behavior (`save(x, true, false)`)
+- Services importing entities from other modules' `entities/` for business logic
+- Copy-pasted validation in multiple services
+- Generic names: `data`, `result`, `temp`, `handleStuff`
+- Comments explaining obvious code
+
+## Checklist
+
+1. Can a new developer understand this method without scrolling?
+2. Are names consistent with the rest of the feature?
+3. Is duplicated logic extracted to the right layer (domain vs common)?
+4. Are magic strings/numbers replaced by named constants?
+5. Is there a unit test for non-trivial domain or service behavior?
