@@ -43,7 +43,7 @@ export class SaleController {
   @ApiOperation({
     summary: 'Registrar venda',
     description:
-      'Cria uma venda com status **OPEN**, captura o preço atual de cada produto e calcula totais. Não movimenta estoque até a conclusão.',
+      'Cria uma venda com status **OPEN**, captura o preço atual de cada produto, **reserva estoque** e calcula totais.',
   })
   @ApiCreatedResponse({
     description: 'Venda registrada',
@@ -99,7 +99,7 @@ export class SaleController {
   @ApiOperation({
     summary: 'Concluir venda',
     description:
-      'Finaliza uma venda **OPEN**, baixa o estoque de cada item (saída OUT) e altera o status para **COMPLETED** na mesma transação.',
+      'Finaliza uma venda **OPEN**, confirma a reserva de estoque (baixa efetiva) e altera o status para **COMPLETED** na mesma transação.',
   })
   @ApiParam({
     name: 'id',
@@ -131,7 +131,7 @@ export class SaleController {
   @ApiOperation({
     summary: 'Cancelar venda',
     description:
-      'Cancela uma venda **OPEN** sem movimentar estoque. Vendas já concluídas ou canceladas retornam erro de status inválido.',
+      'Cancela uma venda **OPEN**, libera a reserva de estoque e altera o status para **CANCELLED**. Vendas já concluídas ou canceladas retornam erro de status inválido.',
   })
   @ApiParam({
     name: 'id',

@@ -170,6 +170,8 @@ export const STOCK_RESPONSE_EXAMPLE = {
   id: '660e8400-e29b-41d4-a716-446655440001',
   productId: '550e8400-e29b-41d4-a716-446655440000',
   quantity: 48,
+  reservedQuantity: 2,
+  availableQuantity: 46,
   minimumQuantity: 10,
   maximumQuantity: 200,
   lowStock: false,

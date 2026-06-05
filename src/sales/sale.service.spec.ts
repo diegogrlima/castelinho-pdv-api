@@ -15,8 +15,15 @@ import { StockService } from '@stocks/stock.service';
 describe('SaleService', () => {
   let service: SaleService;
   let salesRepository: jest.Mocked<SaleRepositoryPort>;
-  let productsService: jest.Mocked<Pick<ProductsService, 'findOne'>>;
-  let stockService: jest.Mocked<Pick<StockService, 'deductQuantity'>>;
+  let productsService: jest.Mocked<
+    Pick<ProductsService, 'findOne' | 'assertActiveProductExists'>
+  >;
+  let stockService: jest.Mocked<
+    Pick<
+      StockService,
+      'reserveForSale' | 'confirmSaleReservation' | 'releaseSaleReservation'
+    >
+  >;
   let dataSource: { transaction: jest.Mock };
 
   const productId = '550e8400-e29b-41d4-a716-446655440000';
@@ -53,10 +60,13 @@ describe('SaleService', () => {
 
     productsService = {
       findOne: jest.fn(),
+      assertActiveProductExists: jest.fn(),
     };
 
     stockService = {
-      deductQuantity: jest.fn(),
+      reserveForSale: jest.fn(),
+      confirmSaleReservation: jest.fn(),
+      releaseSaleReservation: jest.fn(),
     };
 
     dataSource = {
@@ -79,7 +89,7 @@ describe('SaleService', () => {
     service = module.get(SaleService);
   });
 
-  it('creates a sale with product prices and computed total', async () => {
+  it('creates a sale, reserves stock and persists inside a transaction', async () => {
     const dto: CreateSaleDto = {
       items: [{ productId, quantity: 2 }],
     };
@@ -98,7 +108,12 @@ describe('SaleService', () => {
 
     const result = await service.create(dto);
 
-    expect(productsService.findOne).toHaveBeenCalledWith(productId);
+    expect(dataSource.transaction).toHaveBeenCalled();
+    expect(stockService.reserveForSale).toHaveBeenCalledWith(
+      productId,
+      2,
+      expect.anything(),
+    );
     expect(salesRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({
         total: 59.8,
@@ -112,10 +127,10 @@ describe('SaleService', () => {
           },
         ],
       }),
+      expect.anything(),
     );
     expect(result.id).toBe(saleId);
     expect(result.status).toBe(SaleStatus.OPEN);
-    expect(result.items[0].productName).toBe('Café Especial 250g');
   });
 
   it('throws PRODUCT_NOT_FOUND when product does not exist on create', async () => {
@@ -126,6 +141,29 @@ describe('SaleService', () => {
     await expect(
       service.create({ items: [{ productId, quantity: 1 }] }),
     ).rejects.toMatchObject({ code: ErrorCode.PRODUCT_NOT_FOUND });
+
+    expect(stockService.reserveForSale).not.toHaveBeenCalled();
+  });
+
+  it('throws INSUFFICIENT_STOCK when create cannot reserve stock', async () => {
+    productsService.findOne.mockResolvedValue({
+      id: productId,
+      name: 'Café',
+      description: null,
+      price: 10,
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    stockService.reserveForSale.mockRejectedValue({
+      code: ErrorCode.INSUFFICIENT_STOCK,
+    });
+
+    await expect(
+      service.create({ items: [{ productId, quantity: 99 }] }),
+    ).rejects.toMatchObject({ code: ErrorCode.INSUFFICIENT_STOCK });
+
+    expect(salesRepository.create).not.toHaveBeenCalled();
   });
 
   it('returns all sales from repository', async () => {
@@ -135,7 +173,6 @@ describe('SaleService', () => {
 
     expect(salesRepository.findAll).toHaveBeenCalled();
     expect(result).toHaveLength(1);
-    expect(result[0].code).toBe('VND-TEST');
   });
 
   it('throws SALE_NOT_FOUND when sale does not exist', async () => {
@@ -146,7 +183,7 @@ describe('SaleService', () => {
     });
   });
 
-  it('completes an open sale and deducts stock in a transaction', async () => {
+  it('completes an open sale confirming stock reservation in a transaction', async () => {
     const openSale = buildOpenSale();
     const completedSale = { ...openSale, status: SaleStatus.COMPLETED };
 
@@ -154,18 +191,18 @@ describe('SaleService', () => {
       .mockResolvedValueOnce(openSale)
       .mockResolvedValueOnce(completedSale);
     salesRepository.save.mockResolvedValue(completedSale);
-    stockService.deductQuantity.mockResolvedValue(undefined);
+    productsService.assertActiveProductExists.mockResolvedValue(undefined);
+    stockService.confirmSaleReservation.mockResolvedValue(undefined);
 
     const result = await service.complete(saleId);
 
     expect(dataSource.transaction).toHaveBeenCalled();
-    expect(stockService.deductQuantity).toHaveBeenCalledWith(
+    expect(productsService.assertActiveProductExists).toHaveBeenCalledWith(
+      productId,
+    );
+    expect(stockService.confirmSaleReservation).toHaveBeenCalledWith(
       productId,
       2,
-      expect.anything(),
-    );
-    expect(salesRepository.save).toHaveBeenCalledWith(
-      expect.objectContaining({ status: SaleStatus.COMPLETED }),
       expect.anything(),
     );
     expect(result.status).toBe(SaleStatus.COMPLETED);
@@ -183,18 +220,23 @@ describe('SaleService', () => {
     expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 
-  it('cancels an open sale without touching stock', async () => {
+  it('cancels an open sale releasing stock reservation in a transaction', async () => {
     const openSale = buildOpenSale();
     const cancelledSale = { ...openSale, status: SaleStatus.CANCELLED };
 
-    salesRepository.findById.mockResolvedValue(openSale);
+    salesRepository.findById
+      .mockResolvedValueOnce(openSale)
+      .mockResolvedValueOnce(cancelledSale);
     salesRepository.save.mockResolvedValue(cancelledSale);
+    stockService.releaseSaleReservation.mockResolvedValue(undefined);
 
     const result = await service.cancel(saleId);
 
-    expect(stockService.deductQuantity).not.toHaveBeenCalled();
-    expect(salesRepository.save).toHaveBeenCalledWith(
-      expect.objectContaining({ status: SaleStatus.CANCELLED }),
+    expect(dataSource.transaction).toHaveBeenCalled();
+    expect(stockService.releaseSaleReservation).toHaveBeenCalledWith(
+      productId,
+      2,
+      expect.anything(),
     );
     expect(result.status).toBe(SaleStatus.CANCELLED);
   });

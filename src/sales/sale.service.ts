@@ -31,14 +31,26 @@ export class SaleService {
   ) {}
 
   async create(dto: CreateSaleDto): Promise<SaleResponseDto> {
-    const items = await this.buildSaleItems(dto);
-    const total = computeSaleTotal(items);
+    const sale = await this.dataSource.transaction(async (manager) => {
+      const items = await this.buildSaleItems(dto);
 
-    const sale = await this.salesRepository.create({
-      code: generateSaleCode(),
-      total,
-      status: SaleStatus.OPEN,
-      items,
+      for (const item of items) {
+        await this.stockService.reserveForSale(
+          item.productId,
+          item.quantity,
+          manager,
+        );
+      }
+
+      return this.salesRepository.create(
+        {
+          code: generateSaleCode(),
+          total: computeSaleTotal(items),
+          status: SaleStatus.OPEN,
+          items,
+        },
+        manager,
+      );
     });
 
     return toSaleResponse(sale);
@@ -60,7 +72,8 @@ export class SaleService {
 
     const completed = await this.dataSource.transaction(async (manager) => {
       for (const item of sale.items) {
-        await this.stockService.deductQuantity(
+        await this.productsService.assertActiveProductExists(item.productId);
+        await this.stockService.confirmSaleReservation(
           item.productId,
           item.quantity,
           manager,
@@ -85,9 +98,27 @@ export class SaleService {
     const sale = await this.findEntityOrFail(id);
     this.assertOpenStatus(sale, 'Apenas vendas abertas podem ser canceladas');
 
-    sale.status = SaleStatus.CANCELLED;
-    const saved = await this.salesRepository.save(sale);
-    return toSaleResponse(saved);
+    const cancelled = await this.dataSource.transaction(async (manager) => {
+      for (const item of sale.items) {
+        await this.stockService.releaseSaleReservation(
+          item.productId,
+          item.quantity,
+          manager,
+        );
+      }
+
+      sale.status = SaleStatus.CANCELLED;
+      await this.salesRepository.save(sale, manager);
+
+      const updated = await this.salesRepository.findById(sale.id, manager);
+      if (!updated) {
+        throw SaleErrors.notFound();
+      }
+
+      return updated;
+    });
+
+    return toSaleResponse(cancelled);
   }
 
   private async buildSaleItems(
