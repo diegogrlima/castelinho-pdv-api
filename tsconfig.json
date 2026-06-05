@@ -19,7 +19,8 @@
       "@common/*": ["src/common/*"],
       "@config/*": ["src/config/*"],
       "@products/*": ["src/products/*"],
-      "@stocks/*": ["src/stocks/*"]
+      "@stocks/*": ["src/stocks/*"],
+      "@sales/*": ["src/sales/*"]
     },
     "incremental": true,
     "skipLibCheck": true,

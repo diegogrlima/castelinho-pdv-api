@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthModule } from '@common/health/health.module';
 import { typeOrmConfig } from '@config/typeorm.config';
 import { ProductsModule } from '@products/products.module';
+import { SalesModule } from '@sales/sales.module';
 import { StockModule } from '@stocks/stock.module';
 
 @Module({
@@ -31,6 +32,7 @@ import { StockModule } from '@stocks/stock.module';
     }),
     ProductsModule,
     StockModule,
+    SalesModule,
     HealthModule,
   ],
   providers: [
