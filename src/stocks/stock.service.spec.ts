@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { EntityManager } from 'typeorm';
 import { ErrorCode } from '@common/errors/error-codes';
 import { ProductsService } from '@products/products.service';
 import {
@@ -13,12 +14,14 @@ describe('StockService', () => {
   let productsService: jest.Mocked<Pick<ProductsService, 'assertActiveProductExists'>>;
 
   const productId = '550e8400-e29b-41d4-a716-446655440000';
+  const manager = {} as EntityManager;
 
   const stock = {
     id: '660e8400-e29b-41d4-a716-446655440001',
     productId,
     product: {} as never,
     quantity: 10,
+    reservedQuantity: 0,
     minimumQuantity: 2,
     maximumQuantity: 100,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -30,6 +33,7 @@ describe('StockService', () => {
       create: jest.fn(),
       findAll: jest.fn(),
       findByProductId: jest.fn(),
+      findByProductIdForUpdate: jest.fn(),
       save: jest.fn(),
     };
 
@@ -93,7 +97,6 @@ describe('StockService', () => {
   });
 
   it('creates stock through repository port inside transaction', async () => {
-    const manager = {} as never;
     stockRepository.findByProductId.mockResolvedValue(null);
     stockRepository.create.mockResolvedValue(stock);
 
@@ -119,5 +122,63 @@ describe('StockService', () => {
       manager,
     );
     expect(productsService.assertActiveProductExists).not.toHaveBeenCalled();
+  });
+
+  it('reserves available stock for open sales', async () => {
+    stockRepository.findByProductIdForUpdate.mockResolvedValue({ ...stock });
+    stockRepository.save.mockImplementation(async (entity) => entity);
+
+    await service.reserveForSale(productId, 4, manager);
+
+    expect(stockRepository.findByProductIdForUpdate).toHaveBeenCalledWith(
+      productId,
+      manager,
+    );
+    expect(stockRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ reservedQuantity: 4 }),
+      manager,
+    );
+  });
+
+  it('rejects reservation when available stock is insufficient', async () => {
+    stockRepository.findByProductIdForUpdate.mockResolvedValue({
+      ...stock,
+      quantity: 5,
+      reservedQuantity: 3,
+    });
+
+    await expect(
+      service.reserveForSale(productId, 3, manager),
+    ).rejects.toMatchObject({ code: ErrorCode.INSUFFICIENT_STOCK });
+  });
+
+  it('confirms sale reservation deducting quantity and releasing reserved amount', async () => {
+    stockRepository.findByProductIdForUpdate.mockResolvedValue({
+      ...stock,
+      reservedQuantity: 4,
+    });
+    stockRepository.save.mockImplementation(async (entity) => entity);
+
+    await service.confirmSaleReservation(productId, 4, manager);
+
+    expect(stockRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ quantity: 6, reservedQuantity: 0 }),
+      manager,
+    );
+  });
+
+  it('releases reservation on sale cancel', async () => {
+    stockRepository.findByProductIdForUpdate.mockResolvedValue({
+      ...stock,
+      reservedQuantity: 4,
+    });
+    stockRepository.save.mockImplementation(async (entity) => entity);
+
+    await service.releaseSaleReservation(productId, 4, manager);
+
+    expect(stockRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ reservedQuantity: 0 }),
+      manager,
+    );
   });
 });

@@ -1,3 +1,4 @@
+import { computeAvailableQuantity } from '@stocks/domain/stock-availability';
 import { StockResponseDto } from '@stocks/dto/stock-response.dto';
 import { Stock } from '@stocks/entities/stock.entity';
 
@@ -6,6 +7,11 @@ export function toStockResponse(stock: Stock): StockResponseDto {
     id: stock.id,
     productId: stock.productId,
     quantity: stock.quantity,
+    reservedQuantity: stock.reservedQuantity,
+    availableQuantity: computeAvailableQuantity(
+      stock.quantity,
+      stock.reservedQuantity,
+    ),
     minimumQuantity: stock.minimumQuantity,
     maximumQuantity: stock.maximumQuantity,
     lowStock: stock.quantity <= stock.minimumQuantity,

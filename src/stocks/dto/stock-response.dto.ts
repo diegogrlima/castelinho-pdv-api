@@ -23,6 +23,20 @@ export class StockResponseDto {
   quantity: number;
 
   @ApiProperty({
+    description: 'Quantidade reservada por vendas abertas',
+    example: 2,
+    minimum: 0,
+  })
+  reservedQuantity: number;
+
+  @ApiProperty({
+    description: 'Quantidade disponível para novas vendas (quantity - reservedQuantity)',
+    example: 46,
+    minimum: 0,
+  })
+  availableQuantity: number;
+
+  @ApiProperty({
     description: 'Quantidade mínima configurada (alerta de estoque baixo)',
     example: 10,
     minimum: 0,

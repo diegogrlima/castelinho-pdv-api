@@ -36,6 +36,16 @@ export class TypeOrmStockRepository implements StockRepositoryPort {
     return this.resolveRepository(manager).findOne({ where: { productId } });
   }
 
+  findByProductIdForUpdate(
+    productId: string,
+    manager: EntityManager,
+  ): Promise<Stock | null> {
+    return manager.getRepository(Stock).findOne({
+      where: { productId },
+      lock: { mode: 'pessimistic_write' },
+    });
+  }
+
   save(stock: Stock, manager?: EntityManager): Promise<Stock> {
     return this.resolveRepository(manager).save(stock);
   }

@@ -26,6 +26,11 @@ export interface StockRepositoryPort {
     manager?: EntityManager,
   ): Promise<Stock | null>;
 
+  findByProductIdForUpdate(
+    productId: string,
+    manager: EntityManager,
+  ): Promise<Stock | null>;
+
   save(stock: Stock, manager?: EntityManager): Promise<Stock>;
 }
 

@@ -6,6 +6,7 @@ import {
   computeAdjustedQuantity,
   isNegativeQuantity,
 } from '@stocks/domain/stock-adjustment';
+import { computeAvailableQuantity } from '@stocks/domain/stock-availability';
 import {
   stockLimitViolationMessage,
   validateStockQuantityLimits,
@@ -146,12 +147,36 @@ export class StockService {
     return this.persistStock(stock);
   }
 
-  async deductQuantity(
+  async reserveForSale(
     productId: string,
     quantity: number,
-    manager?: EntityManager,
+    manager: EntityManager,
   ): Promise<void> {
-    const stock = await this.findStockByProductIdOrFail(productId, manager);
+    const stock = await this.findStockForUpdateOrFail(productId, manager);
+    const available = computeAvailableQuantity(
+      stock.quantity,
+      stock.reservedQuantity,
+    );
+
+    if (available < quantity) {
+      throw StockErrors.insufficientQuantity();
+    }
+
+    stock.reservedQuantity += quantity;
+    await this.stockRepository.save(stock, manager);
+  }
+
+  async confirmSaleReservation(
+    productId: string,
+    quantity: number,
+    manager: EntityManager,
+  ): Promise<void> {
+    const stock = await this.findStockForUpdateOrFail(productId, manager);
+
+    if (stock.reservedQuantity < quantity) {
+      throw StockErrors.insufficientQuantity();
+    }
+
     const newQuantity = computeAdjustedQuantity(stock.quantity, 'OUT', quantity);
 
     if (isNegativeQuantity(newQuantity)) {
@@ -165,7 +190,39 @@ export class StockService {
     );
 
     stock.quantity = newQuantity;
+    stock.reservedQuantity -= quantity;
     await this.stockRepository.save(stock, manager);
+  }
+
+  async releaseSaleReservation(
+    productId: string,
+    quantity: number,
+    manager: EntityManager,
+  ): Promise<void> {
+    const stock = await this.findStockForUpdateOrFail(productId, manager);
+
+    if (stock.reservedQuantity < quantity) {
+      throw StockErrors.insufficientQuantity();
+    }
+
+    stock.reservedQuantity -= quantity;
+    await this.stockRepository.save(stock, manager);
+  }
+
+  private async findStockForUpdateOrFail(
+    productId: string,
+    manager: EntityManager,
+  ): Promise<Stock> {
+    const stock = await this.stockRepository.findByProductIdForUpdate(
+      productId,
+      manager,
+    );
+
+    if (!stock) {
+      throw StockErrors.notFound();
+    }
+
+    return stock;
   }
 
   private async findStockByProductIdOrFail(

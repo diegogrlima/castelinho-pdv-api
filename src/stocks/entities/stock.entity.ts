@@ -24,6 +24,9 @@ export class Stock {
   @Column({ type: 'int', default: 0 })
   quantity: number;
 
+  @Column({ name: 'reserved_quantity', type: 'int', default: 0 })
+  reservedQuantity: number;
+
   @Column({ name: 'minimum_quantity', type: 'int', default: 0 })
   minimumQuantity: number;
 
