@@ -1,18 +1,21 @@
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from '@/app.module';
-import { HttpExceptionFilter } from '@common/filters/http-exception.filter';
 import { validationExceptionFactory } from '@common/pipes/validation-exception.factory';
 import { setupSwagger } from '@common/swagger/swagger.setup';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
+
+  const logger = app.get(Logger);
+
   app.enableVersioning({
     type: VersioningType.URI,
     defaultVersion: '1',
   });
   setupSwagger(app);
-  app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -21,6 +24,11 @@ async function bootstrap() {
       exceptionFactory: validationExceptionFactory,
     }),
   );
-  await app.listen(process.env.PORT ?? 3000);
+
+  const port = process.env.PORT ?? 3000;
+  await app.listen(port);
+
+  logger.log(`API available at http://localhost:${port}`, 'Bootstrap');
+  logger.log(`documentation available at http://localhost:${port}/docs`, 'Bootstrap');
 }
 bootstrap();

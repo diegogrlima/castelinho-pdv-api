@@ -4,16 +4,19 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
-  Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ApiErrorResponse } from '@common/dto/api-error.response';
 import { AppException } from '@common/errors/app.exception';
 import { ErrorCode } from '@common/errors/error-codes';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger(HttpExceptionFilter.name);
+  constructor(
+    @InjectPinoLogger(HttpExceptionFilter.name)
+    private readonly logger: PinoLogger,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -60,8 +63,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     this.logger.error(
-      `${request.method} ${path} — unexpected error`,
-      exception instanceof Error ? exception.stack : String(exception),
+      {
+        method: request.method,
+        path,
+        err: exception,
+      },
+      'unexpected error',
     );
 
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json(
@@ -134,13 +141,19 @@ export class HttpExceptionFilter implements ExceptionFilter {
     stack?: string,
     forceError = false,
   ): void {
-    const logLine = `${request.method} ${request.url} — ${code} (${status})`;
+    const payload = {
+      method: request.method,
+      path: request.url,
+      code,
+      status,
+      ...(stack ? { stack } : {}),
+    };
 
     if (forceError || status >= HttpStatus.INTERNAL_SERVER_ERROR) {
-      this.logger.error(logLine, stack);
+      this.logger.error(payload, 'request failed');
       return;
     }
 
-    this.logger.warn(logLine);
+    this.logger.warn(payload, 'request rejected');
   }
 }

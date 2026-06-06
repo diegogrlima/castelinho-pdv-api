@@ -1,19 +1,23 @@
-import { ArgumentsHost, HttpStatus, Logger } from '@nestjs/common';
+import { ArgumentsHost, HttpStatus } from '@nestjs/common';
+import { PinoLogger } from 'nestjs-pino';
 import { HttpExceptionFilter } from '@common/filters/http-exception.filter';
 import { AppException } from '@common/errors/app.exception';
 import { ErrorCode } from '@common/errors/error-codes';
 
 describe('HttpExceptionFilter', () => {
   let filter: HttpExceptionFilter;
+  let logger: jest.Mocked<Pick<PinoLogger, 'warn' | 'error'>>;
   let json: jest.Mock;
   let status: jest.Mock;
   let host: ArgumentsHost;
 
   beforeEach(() => {
-    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    logger = {
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
 
-    filter = new HttpExceptionFilter();
+    filter = new HttpExceptionFilter(logger as unknown as PinoLogger);
     json = jest.fn();
     status = jest.fn().mockReturnValue({ json });
     host = {
@@ -22,10 +26,6 @@ describe('HttpExceptionFilter', () => {
         getRequest: () => ({ method: 'GET', url: '/v1/products/1' }),
       }),
     } as ArgumentsHost;
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
   });
 
   it('maps AppException to ApiErrorResponse envelope', () => {
@@ -47,6 +47,7 @@ describe('HttpExceptionFilter', () => {
         timestamp: expect.any(String),
       }),
     );
+    expect(logger.warn).toHaveBeenCalled();
   });
 
   it('maps unknown errors to INTERNAL_ERROR', () => {
@@ -60,5 +61,6 @@ describe('HttpExceptionFilter', () => {
         message: 'Não foi possível processar a solicitação',
       }),
     );
+    expect(logger.error).toHaveBeenCalled();
   });
 });
