@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { LoggerModule } from 'nestjs-pino';
+import { HttpExceptionFilter } from '@common/filters/http-exception.filter';
 import { HealthModule } from '@common/health/health.module';
+import { loggerConfig } from '@config/logger.config';
 import { typeOrmConfig } from '@config/typeorm.config';
 import { ProductsModule } from '@products/products.module';
 import { SalesModule } from '@sales/sales.module';
@@ -14,6 +17,11 @@ import { StockModule } from '@stocks/stock.module';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+    }),
+    LoggerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: loggerConfig,
     }),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
@@ -36,6 +44,10 @@ import { StockModule } from '@stocks/stock.module';
     HealthModule,
   ],
   providers: [
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
+    },
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
